@@ -1,0 +1,63 @@
+bin
+AGENTS.md
+CLAUDE.md
+juejin-data
+
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 编辑器临时文件
+*.swp
+*.swo
+*~
+
+# 本地环境变量，保留可提交的示例文件
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+
+# 日志
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Node / TypeScript 依赖与缓存
+node_modules/
+.pnpm-store/
+.npm/
+*.tsbuildinfo
+.eslintcache
+.stylelintcache
+.parcel-cache/
+.vite/
+.turbo/
+
+# 构建输出：这些目录应当只用于生成文件
+dist/
+build/
+
+# 常见前端框架生成目录
+.next/
+.nuxt/
+.output/
+.svelte-kit/
+
+# 测试与覆盖率
+coverage/
+.nyc_output/
+*.lcov
+
+# Go 测试二进制与覆盖率文件
+*.test
+*.coverprofile
+coverage.out
+coverage.html
+
+# Go 本地工作区：仅个人使用时取消注释
+# go.work
+# go.work.sum
