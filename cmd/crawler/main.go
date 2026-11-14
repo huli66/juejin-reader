@@ -19,8 +19,8 @@ func runCrawler() error {
 	outDir := flag.String("out", "juejin-data", "输出目录")
 	interval := flag.Duration("interval", 2*time.Second, "两次请求的最小间隔")
 	maxSections := flag.Int("max", 0, "最多爬几章，0 表示全部")
-	cookie := os.Getenv("JUEJIN_COOKIE")
 
+	cookie := os.Getenv("JUEJIN_COOKIE")
 	flag.Parse()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)

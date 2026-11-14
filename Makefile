@@ -1,8 +1,11 @@
 # 声明命令，就不会检查同名文件了，例如 make test 不会当成
-.PHONY: fmt lint test build run
+.PHONY: fmt lint test build run setup
 
 # 直接 make 不指定命令会执行第一条
 # 命令冒号后面写其他命令，表示先执行其他命令
+
+setup:
+	lefthook install
 
 fmt:
 	golangci-lint fmt
