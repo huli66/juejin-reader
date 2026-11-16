@@ -23,6 +23,7 @@ func newTestClient(t *testing.T, handler http.HandlerFunc) *Client {
 	c := New(time.Millisecond, "test-cookie")
 	t.Cleanup(c.Close)
 	c.baseURL = srv.URL // 同包测试可以直接改未导出字段
+	c.backoff = time.Millisecond
 
 	return c
 }
@@ -193,5 +194,141 @@ func TestGetAllCommentsPagination(t *testing.T) {
 	}
 	if n := calls.Load(); n != 2 {
 		t.Errorf("请求次数 = %d, want 2", n)
+	}
+}
+
+func TestPostRetry(t *testing.T) {
+	const okBody = `{"err_no": 0, "data": {"section": {"title": "ok"}}}`
+
+	tests := []struct {
+		name      string
+		respond   func(n int32, w http.ResponseWriter) // n 是第几次请求，从 1 开始
+		wantCalls int32
+		check     func(t *testing.T, err error)
+	}{
+		{
+			name: "前两次 500，第三次成功",
+			respond: func(n int32, w http.ResponseWriter) {
+				if n < 3 {
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+				_, _ = fmt.Fprint(w, okBody)
+			},
+			wantCalls: 3,
+			check: func(t *testing.T, err error) {
+				if err != nil {
+					t.Errorf("error = %v, want nil", err)
+				}
+			},
+		},
+		{
+			name: "一直 500，重试用完",
+			respond: func(_ int32, w http.ResponseWriter) {
+				w.WriteHeader(http.StatusInternalServerError)
+			},
+			wantCalls: 3,
+			check: func(t *testing.T, err error) {
+				var httpErr *HTTPError
+				if !errors.As(err, &httpErr) {
+					t.Fatalf("error = %v, want *HTTPError", err)
+				}
+				if httpErr.StatusCode != http.StatusInternalServerError {
+					t.Errorf("status = %d, want 500", httpErr.StatusCode)
+				}
+			},
+		},
+		{
+			name: "429 后成功",
+			respond: func(n int32, w http.ResponseWriter) {
+				if n == 1 {
+					w.WriteHeader(http.StatusTooManyRequests)
+					return
+				}
+				_, _ = fmt.Fprint(w, okBody)
+			},
+			wantCalls: 2,
+			check: func(t *testing.T, err error) {
+				if err != nil {
+					t.Errorf("error = %v, want nil", err)
+				}
+			},
+		},
+		{
+			name: "404 不重试",
+			respond: func(_ int32, w http.ResponseWriter) {
+				w.WriteHeader(http.StatusNotFound)
+			},
+			wantCalls: 1,
+			check: func(t *testing.T, err error) {
+				var httpErr *HTTPError
+				if !errors.As(err, &httpErr) || httpErr.StatusCode != http.StatusNotFound {
+					t.Errorf("error = %v, want *HTTPError 404", err)
+				}
+			},
+		},
+		{
+			name: "业务错误不重试",
+			respond: func(_ int32, w http.ResponseWriter) {
+				_, _ = fmt.Fprint(w, `{"err_no": 403, "err_msg": "未购买"}`)
+			},
+			wantCalls: 1,
+			check: func(t *testing.T, err error) {
+				var apiErr *APIError
+				if !errors.As(err, &apiErr) || apiErr.ErrNo != 403 {
+					t.Errorf("error = %v, want *APIError 403", err)
+				}
+			},
+		},
+		{
+			name: "响应不是 JSON 不重试",
+			respond: func(_ int32, w http.ResponseWriter) {
+				_, _ = fmt.Fprint(w, `<html>`)
+			},
+			wantCalls: 1,
+			check: func(t *testing.T, err error) {
+				if !errors.Is(err, errDecode) {
+					t.Errorf("error = %v, want errDecode", err)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var calls atomic.Int32
+			c := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+				tt.respond(calls.Add(1), w)
+			})
+
+			_, err := c.GetSection(context.Background(), "s1")
+
+			tt.check(t, err)
+			if n := calls.Load(); n != tt.wantCalls {
+				t.Errorf("请求次数 = %d, want %d", n, tt.wantCalls)
+			}
+		})
+	}
+}
+
+func TestPostCanceledDuringBackoff(t *testing.T) {
+	var calls atomic.Int32
+	c := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+	c.backoff = 10 * time.Second // 故意设得很长，保证取消时正卡在退避等待里
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	time.AfterFunc(50*time.Millisecond, cancel) // 50ms 后取消
+
+	_, err := c.GetSection(ctx, "s1")
+
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("error = %v, want context.Canceled", err)
+	}
+	if n := calls.Load(); n != 1 {
+		t.Errorf("请求次数 = %d, want 1", n)
 	}
 }
