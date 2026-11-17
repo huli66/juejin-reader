@@ -1,0 +1,13 @@
+# 默认排除所有文件，只把构建所需的文件送入 Docker 构建上下文。
+# bin、juejin-data、.git、.env 等本地文件因此不会被发送。
+**
+!go.mod
+!go.sum
+!cmd/
+!cmd/**
+!internal/
+!internal/**
+
+# 即使环境文件出现在源码目录中，也排除它们。
+**/.env
+**/.env.*
