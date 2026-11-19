@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"path/filepath"
 
 	"golang.org/x/sync/errgroup"
 
@@ -70,11 +71,26 @@ func Run(ctx context.Context, c *juejin.Client, opt Options) error {
 		return err
 	}
 	title := book.Booklet.BaseInfo.Title
-	store, err := NewFileStore(opt.OutDir, title)
+
+	// 用文件存储
+	// store, err := NewFileStore(opt.OutDir, title)
+
+	// 用 sqlite 存储
+	store, err := NewSQLiteStore(
+		ctx,
+		filepath.Join(opt.OutDir, "juejin.db"),
+		opt.BookletID,
+		title,
+	)
 
 	if err != nil {
 		return err
 	}
+	defer func() {
+		if err := store.Close(); err != nil {
+			log.Printf("关闭数据库失败: %v", err)
+		}
+	}()
 
 	log.Printf("课程《%s》共 %d 章", title, len(book.Sections))
 
