@@ -5,20 +5,18 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
-	"path/filepath"
 
 	"golang.org/x/sync/errgroup"
 
 	"github.com/huli66/juejin-reader/internal/juejin"
 )
 
-func crawlSection(ctx context.Context, c *juejin.Client, dir string, i int, s juejin.SectionBrief) error {
-	prefix := filepath.Join(dir, fmt.Sprintf("%02d_%s", i+1, safeName(s.Title)))
-	mdPath, commentPath := prefix+".md", prefix+".comments.json"
-
-	// 断点续爬：两个文件都在就跳过
-	if fileExists(mdPath) && fileExists(commentPath) {
+func crawlSection(ctx context.Context, c *juejin.Client, store Store, i int, s juejin.SectionBrief) error {
+	exists, err := store.HasSection(ctx, i, s)
+	if err != nil {
+		return err
+	}
+	if exists {
 		log.Printf("[%d] 已存在，跳过: %s", i+1, s.Title)
 		return nil
 	}
@@ -27,19 +25,22 @@ func crawlSection(ctx context.Context, c *juejin.Client, dir string, i int, s ju
 	if err != nil {
 		return err
 	}
-	md := "# " + sec.Section.Title + "\n\n" + sec.Section.MarkdownShow
-	if err := os.WriteFile(mdPath, []byte(md), 0o644); err != nil {
-		return err
-	}
 
 	comments, err := c.GetAllComments(ctx, s.SectionID)
 	if err != nil {
 		return err
 	}
-	if err := saveJSON(commentPath, comments); err != nil {
+
+	if err := store.SaveSection(ctx, i, s, sec, comments); err != nil {
 		return err
 	}
-	log.Printf("[%d] %s: 正文 %d 字， 评论 %d 条", i+1, s.Title, len([]rune(sec.Section.MarkdownShow)), len(comments))
+	log.Printf(
+		"[%d] %s: 正文 %d 字， 评论 %d 条",
+		i+1,
+		s.Title,
+		len([]rune(sec.Section.MarkdownShow)),
+		len(comments),
+	)
 	return nil
 }
 
@@ -69,8 +70,9 @@ func Run(ctx context.Context, c *juejin.Client, opt Options) error {
 		return err
 	}
 	title := book.Booklet.BaseInfo.Title
-	dir := filepath.Join(opt.OutDir, safeName(title))
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	store, err := NewFileStore(opt.OutDir, title)
+
+	if err != nil {
 		return err
 	}
 
@@ -96,7 +98,7 @@ func Run(ctx context.Context, c *juejin.Client, opt Options) error {
 					err := crawlSection(
 						workerCtx,
 						c,
-						dir,
+						store,
 						task.index,
 						task.section,
 					)
@@ -135,15 +137,4 @@ func Run(ctx context.Context, c *juejin.Client, opt Options) error {
 		return err
 	}
 	return ctx.Err()
-
-	// for i, s := range book.Sections {
-	// 	if opt.MaxSections > 0 && i >= opt.MaxSections {
-	// 		break
-	// 	}
-	// 	err := crawlSection(ctx, c, dir, i, s)
-	// 	if err != nil {
-	// 		return err
-	// 	}
-	// }
-	// return nil
 }
